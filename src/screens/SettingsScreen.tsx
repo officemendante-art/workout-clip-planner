@@ -1,4 +1,5 @@
 import { Btn, Chip, Field, ScreenHeader, useConfirm } from "@/components/ui-bits";
+import { cn } from "@/lib/utils";
 import { useStore, STORAGE_KEY } from "@/lib/store";
 
 export function SettingsScreen() {
