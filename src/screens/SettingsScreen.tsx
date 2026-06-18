@@ -25,10 +25,18 @@ export function SettingsScreen() {
           </div>
           <button
             onClick={() => updateSettings({ darkMode: !state.settings.darkMode })}
-            className={`tap relative w-14 rounded-full border border-border transition-colors ${state.settings.darkMode ? "bg-foreground" : "bg-secondary"}`}
+            className={cn(
+              "relative inline-flex h-7 w-12 shrink-0 rounded-full border border-border transition-colors",
+              state.settings.darkMode ? "bg-foreground" : "bg-secondary"
+            )}
             aria-pressed={state.settings.darkMode}
           >
-            <span className={`absolute top-1 h-5 w-5 rounded-full bg-background transition-all ${state.settings.darkMode ? "left-8" : "left-1"}`} />
+            <span
+              className={cn(
+                "absolute left-1 top-1/2 block h-5 w-5 -translate-y-1/2 rounded-full transition-all",
+                state.settings.darkMode ? "translate-x-5 bg-background" : "bg-foreground"
+              )}
+            />
           </button>
         </div>
       </Field>
