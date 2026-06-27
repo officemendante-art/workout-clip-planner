@@ -30,10 +30,45 @@ UserProfile profile() => UserProfile(
   ],
 );
 
+class FakeVideoPickerService implements VideoPickerService {
+  FakeVideoPickerService(this.path);
+
+  String? path;
+  int calls = 0;
+
+  @override
+  Future<String?> pickVideoPath() async {
+    calls += 1;
+    return path;
+  }
+}
+
 Future<void> tapText(WidgetTester tester, String text) async {
   await tester.ensureVisible(find.text(text).last);
   await tester.tap(find.text(text).last);
   await tester.pumpAndSettle();
+}
+
+Future<File> pickRealVideo(String category, {String? contains}) async {
+  final root = Directory(
+    '${Directory.current.parent.path}${Platform.pathSeparator}material for test${Platform.pathSeparator}$category',
+  );
+  expect(await root.exists(), isTrue, reason: 'Missing $category material');
+  final videos = await root
+      .list()
+      .where((entity) => entity is File && isSupportedVideoPath(entity.path))
+      .cast<File>()
+      .toList();
+  expect(videos, isNotEmpty, reason: 'No videos found for $category');
+  videos.sort((a, b) => a.path.compareTo(b.path));
+  if (contains != null) {
+    final needle = contains.toLowerCase();
+    return videos.firstWhere(
+      (file) => file.path.toLowerCase().contains(needle),
+      orElse: () => videos.first,
+    );
+  }
+  return videos.first;
 }
 
 Future<void> continueOnboarding(WidgetTester tester) async {
@@ -447,7 +482,8 @@ void main() {
     final store = await testStore(data);
     store.navigate(const AppRoute('exercise-edit'));
     await tester.pumpWidget(ApexApp(store: store));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.enterText(find.byType(TextField).first, 'Test Press');
     await tester.ensureVisible(find.text('Save Exercise Card'));
     await tester.tap(find.text('Save Exercise Card'));
@@ -472,6 +508,9 @@ void main() {
   testWidgets('Create Exercise video section uses upload wording', (
     tester,
   ) async {
+    final originalPicker = videoPickerService;
+    addTearDown(() => videoPickerService = originalPicker);
+    videoPickerService = FakeVideoPickerService(null);
     final data = seedData(profile: profile());
     final store = await testStore(data);
     store.navigate(const AppRoute('exercise-edit'));
@@ -481,6 +520,18 @@ void main() {
     expect(find.text('No video uploaded yet'), findsOneWidget);
     expect(find.text('Upload Video'), findsOneWidget);
     expect(find.text('Import / Trim Video'), findsNothing);
+    await tester.tap(find.text('Upload Video'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Choose Video'), findsOneWidget);
+    expect(find.text('Local video file path'), findsNothing);
+    expect(find.text('Paste a Windows video path'), findsNothing);
+    await tester.tap(find.text('Choose Video'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect((videoPickerService as FakeVideoPickerService).calls, 1);
+    expect(find.text('No video selected.'), findsOneWidget);
+    expect(find.text('No video uploaded yet'), findsOneWidget);
   });
 
   test(
@@ -505,6 +556,155 @@ void main() {
       expect(store.data.exercises.first.videoStoredPath, stored.path);
       expect(store.data.exercises.first.clipStartSeconds, 5);
       expect(store.data.exercises.first.clipEndSeconds, 22);
+    },
+  );
+
+  test(
+    'real material videos can become cards, workout, logs, and exports',
+    () async {
+      final mediaRoot = Directory(
+        '${Directory.current.path}${Platform.pathSeparator}.apex_data',
+      );
+      if (await mediaRoot.exists()) await mediaRoot.delete(recursive: true);
+      addTearDown(() async {
+        if (await mediaRoot.exists()) await mediaRoot.delete(recursive: true);
+      });
+
+      final selectedVideos = [
+        (
+          file: await pickRealVideo('Warmup_Stretching', contains: 'warm up'),
+          title: 'Upper Body Warm Up',
+          category: 'Mobility',
+          equipment: 'Bodyweight',
+          difficulty: 'Beginner',
+          sets: 1,
+          reps: 1,
+          weight: 0.0,
+          rest: 0,
+          clipStart: 5,
+          clipEnd: 25,
+        ),
+        (
+          file: await pickRealVideo('Chest', contains: 'dumbbell'),
+          title: 'Incline Dumbbell Chest Press',
+          category: 'Chest',
+          equipment: 'Dumbbell',
+          difficulty: 'Intermediate',
+          sets: 3,
+          reps: 10,
+          weight: 12.5,
+          rest: 90,
+          clipStart: 5,
+          clipEnd: 22,
+        ),
+        (
+          file: await pickRealVideo('Back', contains: 'seated cable row'),
+          title: 'Seated Cable Row',
+          category: 'Back',
+          equipment: 'Machine',
+          difficulty: 'Beginner',
+          sets: 3,
+          reps: 12,
+          weight: 35.0,
+          rest: 75,
+          clipStart: 8,
+          clipEnd: 28,
+        ),
+      ];
+
+      final store = await testStore(seedData(profile: profile()));
+      final created = <ExerciseCard>[];
+      for (final spec in selectedVideos) {
+        final draft = await copyVideoToTemp(spec.file.path);
+        final id = newId();
+        final storedPath = await moveTempVideoToOriginals(
+          tempPath: draft.tempPath,
+          videoName: draft.name,
+          exerciseId: id,
+        );
+        final exercise = ExerciseCard(
+          id: id,
+          title: spec.title,
+          category: spec.category,
+          equipment: spec.equipment,
+          difficulty: spec.difficulty,
+          notes: 'Real workflow test using ${spec.file.path}',
+          tags: ['phase-1-2', spec.category.toLowerCase()],
+          sets: spec.sets,
+          reps: spec.reps,
+          weight: spec.weight,
+          restTimerSeconds: spec.rest,
+          videoName: draft.name,
+          videoPath: draft.originalPath,
+          videoOriginalPath: draft.originalPath,
+          videoStoredPath: storedPath,
+          videoSizeBytes: draft.sizeBytes,
+          videoImportedAt: draft.importedAt,
+          clipStartSeconds: spec.clipStart,
+          clipEndSeconds: spec.clipEnd,
+          createdAt: DateTime(2026, 6, 28),
+          modifiedAt: DateTime(2026, 6, 28),
+        );
+        await store.upsertExercise(exercise);
+        created.add(exercise);
+        expect(await File(storedPath).exists(), isTrue);
+      }
+
+      final workout = Workout(
+        id: 'test-workout-video-flow',
+        name: 'Test Workout - Video Flow',
+        description: 'Real video upload workflow test',
+        exerciseIds: created.map((exercise) => exercise.id).toList(),
+        createdAt: DateTime(2026, 6, 28),
+        modifiedAt: DateTime(2026, 6, 28),
+      );
+      await store.upsertWorkout(workout);
+
+      await store.addLog(
+        WorkoutLog(
+          id: 'warmup-log',
+          workoutId: workout.id,
+          exerciseId: created[0].id,
+          date: DateTime(2026, 6, 28),
+          sets: [LoggedSet(setNumber: 1, weight: 0, reps: 1, completed: true)],
+        ),
+      );
+      await store.addLog(
+        WorkoutLog(
+          id: 'chest-log',
+          workoutId: workout.id,
+          exerciseId: created[1].id,
+          date: DateTime(2026, 6, 28),
+          sets: [
+            LoggedSet(setNumber: 1, weight: 12.5, reps: 10, completed: true),
+            LoggedSet(setNumber: 2, weight: 12.5, reps: 10, completed: true),
+          ],
+        ),
+      );
+      await store.addLog(
+        WorkoutLog(
+          id: 'back-log',
+          workoutId: workout.id,
+          exerciseId: created[2].id,
+          date: DateTime(2026, 6, 28),
+          sets: [
+            LoggedSet(setNumber: 1, weight: 35, reps: 12, completed: true),
+            LoggedSet(setNumber: 2, weight: 35, reps: 12, completed: true),
+          ],
+        ),
+      );
+
+      expect(store.data.workouts.first.name, 'Test Workout - Video Flow');
+      expect(store.data.logs.take(3), hasLength(3));
+      final json = store.data.encodePretty();
+      final markdown = exportMarkdown(store.data);
+      expect(json, contains('videoStoredPath'));
+      expect(json, contains('clipStartSeconds'));
+      expect(json, contains('clipEndSeconds'));
+      expect(markdown, contains('Incline Dumbbell Chest Press'));
+      expect(markdown, contains('Video stored path'));
+      expect(markdown, contains('Clip: 00:05 -> 00:22'));
+      expect(markdown, contains('Test Workout - Video Flow'));
     },
   );
 

@@ -2,41 +2,39 @@
 
 ## Summary
 
-The Apex Phase 1.1B onboarding UX upgrade is implemented in the Flutter Windows app. The first-run profile setup now behaves like a real app flow instead of a flat form.
+Phase 1.2 real video upload implementation is accepted for the local Windows pass, with native file-picker GUI click-through noted as not automated.
 
-## Accepted Changes
+## Phase 1.2 Checklist
 
-- Old flat profile form replaced.
-- Birthday-based automatic age added.
-- Height supports cm and ft & in.
-- Weight supports kg and lbs.
-- BMI estimate added as a neutral rough tracking insight.
-- Weight history is preserved.
-- Monthly weight prompt is preserved.
-- Save Profile navigation to visible Home UI is tested.
-- Settings profile editor remains available and updates profile data.
+- [x] Upload modal has no manual path input.
+- [x] Choose Video opens picker service.
+- [x] Real video file copied into temp storage.
+- [x] Saved exercise moves video into originals.
+- [x] Trimmer saves start/end metadata.
+- [x] Exercise card displays uploaded video state.
+- [x] Exercise details displays video metadata.
+- [x] Created video exercise added to workout.
+- [x] Workout logging works with video exercises.
+- [x] History/log data saves after logging.
+- [x] Export JSON includes video fields.
+- [x] Export Markdown includes created exercises and video fields.
+- [x] Windows build passes.
 
 ## Verification
 
-- `dart format .`: passed.
+- `flutter pub get`: passed.
+- `dart format`: passed.
 - `flutter analyze`: passed.
-- `flutter test`: passed, 28 tests.
-- `flutter build windows`: passed.
+- `flutter test --no-pub`: passed, 29 tests.
+- `flutter build windows --no-pub`: passed.
+- `flutter run -d windows --no-pub`: launched; `apex.exe` process observed and stopped.
 
 ## Windows Build
-
-Built artifact:
 
 `flutter_app\build\windows\x64\runner\Release\apex.exe`
 
 Use the complete `Release` folder as the runnable Windows deliverable.
 
-## Not Included
-
-- Android work was not started.
-- Full UI redesign was not performed.
-- Deep video polishing was not started.
-
 ## Current Status
 
-Accepted for this Phase 1.1B Windows onboarding pass.
+Accepted for Phase 1.2 local Windows source/test/build verification. Ready for Git commit and push after final Git review.

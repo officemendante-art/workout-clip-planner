@@ -11,6 +11,23 @@ node_modules
 dist
 dist-ssr
 *.local
+.localappdata/
+material for test/
+flutter_app/.apex_data/
+flutter_app/build/
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins*
+flutter_app/.pub/
+flutter_app/.pub-cache/
+flutter_app/.idea/
+flutter_app/android/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+apex_export.json
+apex_export.md
 
 # Editor directories and files
 .vscode/*

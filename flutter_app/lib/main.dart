@@ -152,6 +152,42 @@ bool shouldShowWeightPrompt(UserProfile profile, DateTime now) {
 
 const videoExtensions = {'.mp4', '.mov', '.mkv', '.webm', '.avi'};
 
+abstract class VideoPickerService {
+  Future<String?> pickVideoPath();
+}
+
+class WindowsDialogVideoPicker implements VideoPickerService {
+  const WindowsDialogVideoPicker();
+
+  @override
+  Future<String?> pickVideoPath() async {
+    if (!Platform.isWindows) return null;
+    const script = r'''
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = 'Choose exercise video'
+$dialog.Filter = 'Video files (*.mp4;*.mov;*.mkv;*.webm;*.avi)|*.mp4;*.mov;*.mkv;*.webm;*.avi'
+$dialog.Multiselect = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::Out.WriteLine($dialog.FileName)
+}
+''';
+    final result = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-STA',
+      '-Command',
+      script,
+    ]);
+    if (result.exitCode != 0) {
+      throw StateError(result.stderr.toString().trim());
+    }
+    final path = result.stdout.toString().trim();
+    return path.isEmpty ? null : path;
+  }
+}
+
+VideoPickerService videoPickerService = const WindowsDialogVideoPicker();
+
 String fileExtension(String path) {
   final name = path.split(RegExp(r'[\\/]')).last.toLowerCase();
   final dot = name.lastIndexOf('.');
@@ -199,9 +235,10 @@ Future<VideoUploadDraft> copyVideoToTemp(String sourcePath) async {
   }
   final tempDir = apexVideoDirectory('temp');
   await tempDir.create(recursive: true);
+  await apexVideoDirectory('clips').create(recursive: true);
   final importedAt = DateTime.now();
   final storedName =
-      '${importedAt.microsecondsSinceEpoch}_${safeFileName(name)}';
+      'exercise_draft_${importedAt.microsecondsSinceEpoch}_${safeFileName(name)}';
   final tempPath = '${tempDir.path}${Platform.pathSeparator}$storedName';
   try {
     await source.copy(tempPath);
@@ -229,6 +266,7 @@ Future<String> moveTempVideoToOriginals({
   }
   final originals = apexVideoDirectory('originals');
   await originals.create(recursive: true);
+  await apexVideoDirectory('clips').create(recursive: true);
   final storedName = '${safeFileName(exerciseId)}_${safeFileName(videoName)}';
   final destination = '${originals.path}${Platform.pathSeparator}$storedName';
   try {
@@ -1190,8 +1228,23 @@ String exportMarkdown(AppData data) {
       ..writeln('- Weight: ${exercise.weight.g} kg')
       ..writeln('- Rest: ${exercise.restTimerSeconds} sec')
       ..writeln('- Tags: ${exercise.tags.join(', ')}')
-      ..writeln('- Notes: ${exercise.notes}')
-      ..writeln();
+      ..writeln('- Notes: ${exercise.notes}');
+    if (exercise.hasVideo) {
+      buffer
+        ..writeln('- Video file: ${exercise.videoName ?? 'Uploaded video'}')
+        ..writeln('- Video stored path: ${exercise.videoStoredPath ?? ''}');
+      if (exercise.clipStartSeconds != null &&
+          exercise.clipEndSeconds != null) {
+        buffer
+          ..writeln(
+            '- Clip: ${timeCode(exercise.clipStartSeconds!)} -> ${timeCode(exercise.clipEndSeconds!)}',
+          )
+          ..writeln(
+            '- Clip length: ${timeCode(exercise.clipEndSeconds! - exercise.clipStartSeconds!)}',
+          );
+      }
+    }
+    buffer.writeln();
   }
   buffer
     ..writeln('## Workouts')
@@ -3079,6 +3132,14 @@ class ExerciseListCard extends StatelessWidget {
                   '${exercise.sets} x ${exercise.reps} / ${exercise.weight.g}kg / rest ${exercise.restTimerSeconds}s',
                   style: const TextStyle(fontFamily: 'Inter', fontSize: 12),
                 ),
+                if (exercise.hasVideo)
+                  Text(
+                    exercise.clipStartSeconds != null &&
+                            exercise.clipEndSeconds != null
+                        ? 'Video uploaded / Clip ${timeCode(exercise.clipStartSeconds!)} -> ${timeCode(exercise.clipEndSeconds!)}'
+                        : 'Video uploaded',
+                    style: TextStyle(color: c(context).muted, fontSize: 11),
+                  ),
                 if (exercise.notes.isNotEmpty)
                   Text(
                     exercise.notes,
@@ -3133,6 +3194,16 @@ class ExerciseGridCard extends StatelessWidget {
             '${exercise.sets} x ${exercise.reps} / ${exercise.weight.g}kg',
             style: const TextStyle(fontFamily: 'Inter', fontSize: 11),
           ),
+          if (exercise.hasVideo)
+            Text(
+              exercise.clipStartSeconds != null &&
+                      exercise.clipEndSeconds != null
+                  ? 'Video / Clip ${timeCode(exercise.clipStartSeconds!)} -> ${timeCode(exercise.clipEndSeconds!)}'
+                  : 'Video / Uploaded',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: c(context).muted, fontSize: 10),
+            ),
         ],
       ),
     );
@@ -3481,7 +3552,6 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
 
   Future<void> _uploadVideo(BuildContext context) async {
     final store = StoreScope.of(context);
-    final pathController = TextEditingController(text: videoOriginalPath ?? '');
     final sourcePath = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -3491,12 +3561,17 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
           children: [
             const VideoPlaceholder(),
             const SizedBox(height: 12),
-            TextField(
-              controller: pathController,
-              decoration: const InputDecoration(
-                labelText: 'Local video file path',
-                helperText: 'Paste a Windows video path',
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Upload exercise video',
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Choose a local workout video. Apex copies it into local storage before trimming.',
+              style: TextStyle(color: c(context).muted, fontSize: 12),
             ),
           ],
         ),
@@ -3506,17 +3581,28 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              final path = pathController.text.trim();
-              Navigator.pop(context, path.isEmpty ? null : path);
+            onPressed: () async {
+              try {
+                final path = await videoPickerService.pickVideoPath();
+                if (context.mounted) Navigator.pop(context, path ?? '');
+              } catch (_) {
+                if (context.mounted) Navigator.pop(context, '__picker_error__');
+              }
             },
-            child: const Text('Upload Video'),
+            child: const Text('Choose Video'),
           ),
         ],
       ),
     );
-    pathController.dispose();
     if (!context.mounted || sourcePath == null) return;
+    if (sourcePath == '__picker_error__') {
+      toast(context, 'Could not open video picker.');
+      return;
+    }
+    if (sourcePath.isEmpty) {
+      toast(context, 'No video selected.');
+      return;
+    }
     try {
       final draft = await copyVideoToTemp(sourcePath);
       if (!mounted) return;
@@ -3533,6 +3619,7 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
         clipEnd = null;
       });
       _syncDraft(store);
+      if (context.mounted) await _trimVideo(context);
     } on VideoUploadException catch (error) {
       if (mounted) toast(this.context, error.message);
     }
@@ -3547,7 +3634,7 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
       context: context,
       builder: (context) {
         var start = clipStart ?? 0;
-        var end = clipEnd ?? 30;
+        var end = clipEnd ?? 15;
         String? error;
         return StatefulBuilder(
           builder: (context, setDialogState) => AlertDialog(
@@ -3555,6 +3642,15 @@ class _ExerciseEditorScreenState extends State<ExerciseEditorScreen> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (videoName != null) ...[
+                  Text(
+                    videoName!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 VideoPlaceholder(
                   name: videoName,
                   start: start,
@@ -3704,7 +3800,7 @@ class ExerciseDetailsScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Video',
+                  'Video file:',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 6),

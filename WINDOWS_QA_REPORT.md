@@ -1,31 +1,37 @@
 # Apex Windows QA Report
 
-## Scope
+## Phase 1.2 Scope
 
-Phase 1.1B onboarding UX upgrade for the Flutter Windows app only.
+Real video upload and workflow testing for the Flutter Windows app only.
 
-## Commands
+## Commands Run
 
 ```powershell
-& 'C:\Users\DANTE\Downloads\AYAXPY~1\tools\flutter\bin\cache\dart-sdk\bin\dart.exe' format .
-$env:GIT_CONFIG_GLOBAL='C:\Users\DANTE\Downloads\workout\Apex\workout-clip-planner\flutter_app\.flutter_gitconfig'; & 'C:\Users\DANTE\Downloads\AYAXPY~1\tools\flutter\bin\flutter.bat' analyze
-$env:GIT_CONFIG_GLOBAL='C:\Users\DANTE\Downloads\workout\Apex\workout-clip-planner\flutter_app\.flutter_gitconfig'; & 'C:\Users\DANTE\Downloads\AYAXPY~1\tools\flutter\bin\flutter.bat' test
-$env:GIT_CONFIG_GLOBAL='C:\Users\DANTE\Downloads\workout\Apex\workout-clip-planner\flutter_app\.flutter_gitconfig'; & 'C:\Users\DANTE\Downloads\AYAXPY~1\tools\flutter\bin\flutter.bat' build windows
+& $Flutter pub get
+& $Dart format lib\main.dart test\apex_test.dart
+$env:LOCALAPPDATA='...\workout-clip-planner\.localappdata'; & $Dart analyze lib\main.dart test\apex_test.dart
+& $Flutter analyze
+& $Flutter test --no-pub
+& $Flutter build windows --no-pub
+& $Flutter run -d windows --no-pub
 ```
 
 ## Results
 
 - Format: passed.
-- Analyze: passed, no issues found.
-- Tests: passed, 28 tests.
+- Pub get: passed.
+- Partial Dart analyze: passed, no issues found.
+- Flutter analyze: passed, no issues found.
+- Flutter tests: passed, 29 tests.
 - Windows build: passed.
+- Flutter run: launched and `apex.exe` process was observed; stopped cleanly after timeout.
 
 ## Build Artifact
 
 `flutter_app\build\windows\x64\runner\Release\apex.exe`
 
-The full `Release` folder should be used when running or sharing the Windows build.
+Use the full `Release` folder as the runnable Windows artifact.
 
-## Notes
+## Current QA Status
 
-The first build attempt found a stale generated CMake cache from a previous checkout path. Only `flutter_app\build\windows` was cleared, then the build succeeded.
+Accepted with one caveat: native file picker GUI click-through was not automated. The picker service was tested with a fake picker, real video copy/workout/log/export was tested with actual local files, and the Windows app launch was confirmed.
